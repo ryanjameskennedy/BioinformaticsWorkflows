@@ -1,0 +1,71 @@
+import os
+import sys
+
+fa_extensions = [".fasta"]
+fq_extensions = [".fastq", ".fq", ".fastq.gz", ".fq.gz"]
+fasta_file_list = os.listdir("../01_data")
+fastq_file_list = os.listdir("../00_raw_data")
+filename = [file.rstrip(ext) for file in fasta_file_list for ext in fa_extensions if file.endswith(ext)]
+fasta_ext = [ext for file in fasta_file_list for ext in fa_extensions if file.endswith(ext)]
+fastq_samples = sorted([file for file in fastq_file_list for ext in fq_extensions if file.endswith(ext)])
+if len(filename) != 1:
+    print("Only one fasta file can be mapped! Please check 01_data and make sure your fasta file has the '.fasta' extension")
+    print(filename)
+    sys.exit(1)
+
+rule all:
+    input: 
+        expand("../03_annotation/{s}.gff", s=filename),
+        expand("../04_mapping/{s}.bam", s=filename),
+        expand("../07_figures/cmp_coverage/{s}.png", s=filename),
+        expand("../07_figures/wg_coverage/{s}.svg", s=filename),
+        expand("../07_figures/gc_skew/{s}.png", s=filename)
+
+#rule predict:
+    #input: 
+        #fasta = expand("../01_data/{s}{ext}", s=filename, ext=fasta_ext)
+    #output: 
+        #gff = "../03_annotation/orf/{s}.gff"
+        #cds = "../03_annotation/orf/{s}.cds"
+    #shell: "prodigal -i {input.fasta} -f gff -o {output.gff} -d {output.cds}"
+
+rule annotate:
+    input: 
+        fasta = expand("../01_data/{s}{ext}", s=filename, ext=fasta_ext) #expand("../03_annotation/orf/{s}.cds", s=filename)
+    output: "../03_annotation/{s}.gff" #directory("../03_annotation/annotation_results")
+    shell: "prokka --force --prefix {s} --outdir ../03_annotation --cpus 32 --rfam {input.fasta}" #microbeannotator -i {input.fasta} -d /gpfs1/scratch/ryan/MicrobeAnnotator_DB -o ../03_annotation -m diamond -p 1 -t 32
+
+rule map:
+    input:
+        fasta = expand("../01_data/{s}{ext}", s=filename, ext=fasta_ext),
+        fastq = expand("../00_raw_data/{fq}", fq=fastq_samples)
+    output:
+        sam = "../04_mapping/{s}.sam",
+        bam = "../04_mapping/{s}.bam",
+        dictionary = "../01_data/{s}.dict"
+    shell:
+        """
+        bwa index {input.fasta}
+        bwa mem -M -t 32 {input.fasta} {input.fastq} > {output.sam}
+        samtools view -Sb -@ 32 {output.sam} | samtools sort -@ 32 -o {output.bam} - 
+        samtools index -@ 32 {output.bam}
+        samtools dict {input.fasta} -o {output.dictionary}
+        """
+
+rule skew:
+    input: expand("../01_data/{s}{ext}", s=filename, ext=fasta_ext)
+    output: "../07_figures/gc_skew/{s}.png"
+    shell: "plot_gcskew.py -i {input} -o {output}"
+
+rule whole_genome_coverage:
+    input: 
+        fasta = expand("../01_data/{s}{ext}", s=filename, ext=fasta_ext),
+        bam = "../04_mapping/{s}.bam"
+    output: "../07_figures/wg_coverage/{s}.svg"
+    shell: "java -jar /gpfs1/scratch/ryan/tools/jvarkit/dist/wgscoverageplotter.jar --dimension 1500x500 -C -1 --clip -R {input.fasta} {input.bam} --percentile median  > {output}"
+
+rule comparative_coverage:
+    input: "../04_mapping/{s}.bam"
+    output: "../07_figures/cmp_coverage/{s}.png"
+    shell: "java -jar /gpfs1/scratch/ryan/tools/jvarkit/dist/bamcmpcoverage.jar {input} -o {output}"
+

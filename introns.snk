@@ -1,0 +1,25 @@
+rule all:
+    input:
+        "../data/figures/intron_counts.png"
+
+rule retrieve_genome_data:
+    output:
+        "../data/intron_filepaths.json"
+    script:
+        "retrieve_genome_data.py"
+
+rule analysis:
+    input:
+        "../data/intron_filepaths.json"
+    output:
+        "../data/stats/intron_counts.csv"
+    script:
+        "analyse_introns.py"
+
+rule figures:
+    input:
+        "../data/stats/intron_counts.csv"
+    output:
+        "../data/figures/intron_counts.png"
+    script:
+        "intron_figures.R"

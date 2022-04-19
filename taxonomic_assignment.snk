@@ -1,0 +1,51 @@
+import os
+import sys
+
+fa_extensions = [".fasta", ".fna", ".fa", ".fasta.gz", ".fna.gz", ".fa.gz"]
+fasta_file_list = os.listdir("0_data")
+filename = [file.rstrip(ext) for file in fasta_file_list for ext in fa_extensions if file.endswith(ext)]
+fasta_ext = [ext for file in fasta_file_list for ext in fa_extensions if file.endswith(ext)]
+
+rule all:
+    input: 
+        expand("1_taxa_class/taxseedo_results_{s}.csv", s=filename),
+        "filepaths/genome_fpaths.txt",
+        "2_ani_dddh/ani_results_ARISO178.txt",
+        "2_ani_dddh/ARISO178.csv",
+        "2_ani_dddh/ARISO178.png"
+
+rule taxseedo:
+    input:
+        fasta = expand("0_data/{s}{ext}", s=filename, ext=fasta_ext)
+    output: "1_taxa_class/taxseedo_results_{s}"
+    shell: "identify_query.py -fa -sp -b -i {input.fasta} -o {output}"
+
+rule filepaths:
+    input:
+        fasta = expand("0_data/{s}{ext}", s=filename, ext=fasta_ext),
+        rrna_ani = "1_taxa_class/16S_rrna.rep.SILVA.txt",
+        taxseedo = expand("1_taxa_class/taxseedo_results_{s}.csv", s=filename)
+    output: "filepaths/genome_fpaths.txt"
+    shell: "get_genome_fpaths.py -f {input.fasta} -i {input.rrna_ani} {input.taxseedo} -o {output}"
+
+rule ani_dddh:
+    input:
+        filepaths = "filepaths/genome_fpaths.txt"
+    output: "2_ani_dddh/ani_results_ARISO178.txt"
+    shell: 
+        """
+        ggdc-robot.py -q {input.filepaths} -r {input.filepaths} -e ryan.kennedy@ntu.edu.sg -u 50
+        pairwise_orthoani.py --cores 64 --ql {input.filepaths} --rl {input.filepaths} -o {output}
+        """
+
+rule merge:
+    output: 
+        csv = "2_ani_dddh/ARISO178.csv"
+    shell: "cut_ani_dddh.py -i 2_ani_dddh -o {output.csv}"
+
+rule plot:
+    input: 
+        csv = "2_ani_dddh/ARISO178.csv"
+    output: 
+        png = "2_ani_dddh/ARISO178.png"
+    shell: "plot_ani_dddh.R -i {input.csv} -o {output.png}"
